@@ -3,36 +3,48 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { mkdirSync } from 'node:fs';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.join(__dirname, '../uploads');
+const uploadDir = path.resolve(__dirname, '../uploads');
 mkdirSync(uploadDir, { recursive: true });
 
+const allowedExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const storage = multer.diskStorage({
-  destination: uploadDir,
+  destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
-    const unique = crypto.randomBytes(8).toString('hex');
-    const ext = path.extname(file.originalname);
-    cb(null, `${unique}${ext}`);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${crypto.randomBytes(16).toString('hex')}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Only image files are allowed.'));
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExtensions.has(ext) && (!file.mimetype || file.mimetype.startsWith('image/'))) {
+      return cb(null, true);
+    }
+    cb(new Error('Please upload a PNG, JPG, JPEG, or WEBP image.'));
   },
 });
 
 export const uploadRouter = express.Router();
 
-uploadRouter.post('/', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ message: 'No file provided.' });
-  }
-  const file_url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ file_url });
+uploadRouter.post('/', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Image is too large. Please choose an image under 10 MB.'
+        : err.message || 'Unable to upload this image.';
+      console.error('Payment screenshot upload rejected:', err.code || err.message);
+      return res.status(400).json({ message });
+    }
+    if (!req.file) return res.status(400).json({ message: 'Please select a payment screenshot first.' });
+
+    const file_url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    console.log('Payment screenshot uploaded:', req.file.filename, req.file.size);
+    return res.status(201).json({ file_url });
+  });
 });
