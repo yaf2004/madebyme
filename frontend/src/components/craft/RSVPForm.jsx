@@ -46,8 +46,8 @@ export default function RSVPForm() {
     try {
       const { file_url } = await api.upload.file(file);
       set("payment_screenshot_url", file_url);
-    } catch {
-      setError("Upload failed — try the payment link option instead.");
+    } catch (err) {
+      setError(err?.message || "Upload failed. Please try again or use the payment link option.");
     } finally {
       setUploading(false);
     }
